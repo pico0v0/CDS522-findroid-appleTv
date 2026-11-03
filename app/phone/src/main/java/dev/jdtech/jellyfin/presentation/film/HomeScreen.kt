@@ -96,7 +96,10 @@ private fun HomeScreenLayout(state: HomeState, onAction: (HomeAction) -> Unit) {
     var showServerSelectionBottomSheet by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
-        PullToRefreshBox(isRefreshing = false, onRefresh = { onAction(HomeAction.OnRetryClick) }) {
+        if (state.isLoading && state.suggestionsSection == null && state.resumeSection == null && state.views.isEmpty()) {
+            dev.jdtech.jellyfin.presentation.components.AppleTvSplashScreen()
+        } else {
+            PullToRefreshBox(isRefreshing = false, onRefresh = { onAction(HomeAction.OnRetryClick) }) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().semantics { traversalIndex = 1f },
                 contentPadding = PaddingValues(top = contentPaddingTop, bottom = paddingBottom),
@@ -142,8 +145,9 @@ private fun HomeScreenLayout(state: HomeState, onAction: (HomeAction) -> Unit) {
             }
         }
 
-        if (state.error != null && showErrorDialog) {
-            ErrorDialog(exception = state.error!!, onDismissRequest = { showErrorDialog = false })
+            if (state.error != null && showErrorDialog) {
+                ErrorDialog(exception = state.error!!, onDismissRequest = { showErrorDialog = false })
+            }
         }
     }
 
