@@ -69,6 +69,7 @@ import dev.jdtech.jellyfin.film.presentation.movie.MovieViewModel
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.presentation.film.components.ActorsRow
+import dev.jdtech.jellyfin.presentation.film.components.AppleTvMediaCache
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
@@ -110,6 +111,17 @@ fun MovieScreen(
 
     var currentMovieId by remember { mutableStateOf(movieId) }
 
+    // 优先读取内存缓存，进入详情页第 0 毫秒即刻呈现“相关推荐”，杜绝二次网络请求引发的突然插入与页面跳动
+    val cachedList = remember { AppleTvMediaCache.cachedItems }
+    var effectiveMediaItems by remember { mutableStateOf(cachedList) }
+
+    LaunchedEffect(mediaState.mediaItems) {
+        if (mediaState.mediaItems.isNotEmpty()) {
+            effectiveMediaItems = mediaState.mediaItems
+            AppleTvMediaCache.cachedItems = mediaState.mediaItems
+        }
+    }
+
     LaunchedEffect(currentMovieId) {
         viewModel.loadMovie(movieId = currentMovieId)
     }
@@ -137,7 +149,7 @@ fun MovieScreen(
 
     MovieScreenLayout(
         state = state,
-        mediaItems = mediaState.mediaItems,
+        mediaItems = effectiveMediaItems,
         downloaderState = downloaderState,
         onAction = { action ->
             when (action) {

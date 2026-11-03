@@ -55,6 +55,7 @@ import dev.jdtech.jellyfin.film.presentation.search.SearchAction
 import dev.jdtech.jellyfin.film.presentation.search.SearchViewModel
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvItemCard
+import dev.jdtech.jellyfin.presentation.film.components.AppleTvMediaCache
 import kotlinx.coroutines.delay
 
 private val AppleTvBlack = Color(0xFF000000)
@@ -87,6 +88,7 @@ fun MediaScreen(
     // 后台静默预加载所有短片的剧照背景与海报，直接缓存至本地，实现详情页点开秒显不黑屏
     LaunchedEffect(state.mediaItems) {
         if (state.mediaItems.isNotEmpty()) {
+            AppleTvMediaCache.cachedItems = state.mediaItems
             val imageLoader = context.imageLoader
             state.mediaItems.forEach { item ->
                 item.images.primary?.let { uri ->
