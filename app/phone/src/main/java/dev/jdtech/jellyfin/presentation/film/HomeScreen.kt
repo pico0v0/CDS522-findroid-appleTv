@@ -6,10 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,7 +61,6 @@ import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.home.HomeViewModel
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidItem
-import dev.jdtech.jellyfin.presentation.film.components.AppleTvItemCard
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvLandscapeCard
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvMediaCache
 import dev.jdtech.jellyfin.presentation.film.components.resolveItemImage
@@ -99,28 +101,22 @@ fun HomeScreen(
         }
     }
 
-    // 主海报轮播候选影片（前 6 部精品）
+    // 主海报轮播影片（前 8 部精选作品）
     val heroItems = remember(allShortFilms) {
-        if (allShortFilms.isNotEmpty()) allShortFilms.take(6) else emptyList()
-    }
-
-    // 内容轨道 1：好戲就在 Apple TV 串流熱播中（横向卡片）
-    val rail1Items = remember(allShortFilms) {
-        allShortFilms.take(8)
-    }
-
-    // 内容轨道 2：精选短片 · 4K 杜比视界（竖版卡片）
-    val rail2Items = remember(allShortFilms) {
-        if (allShortFilms.size > 2) allShortFilms.drop(1) else allShortFilms
+        if (allShortFilms.isNotEmpty()) allShortFilms.take(8) else emptyList()
     }
 
     var isMuted by remember { mutableStateOf(true) }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        // 动态计算尺寸：给上方海报留出尽可能大的空间，下方热播栏沉底贴近底部导航栏，彻底消除黑边空隙
+        val railHeight = 162.dp
+        val heroHeight = (maxHeight - railHeight).coerceAtLeast(530.dp)
+
         PullToRefreshBox(
             isRefreshing = state.isLoading,
             onRefresh = { viewModel.loadData() },
@@ -129,7 +125,7 @@ fun HomeScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // 1. 顶部主海报区域（像素级还原官方 Apple TV+ 首页巨幕海报与焦点信息）
+                // 1. 顶部巨幕焦点海报区域（自适应撑满上方所有空间，尽展海报画质）
                 item(key = "hero_carousel") {
                     AppleTvHeroSection(
                         items = heroItems,
@@ -137,77 +133,49 @@ fun HomeScreen(
                         onMuteToggle = { isMuted = !isMuted },
                         onProfileClick = onSettingsClick,
                         onItemClick = onItemClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(heroHeight),
                     )
                 }
 
-                // 2. 第一轨道：“好戲就在 Apple TV 串流熱播中”
-                if (rail1Items.isNotEmpty()) {
+                // 2. 唯一保留轨道：“好戲就在 Apple TV 串流熱播中”（贴底展示，包含全部短片）
+                if (allShortFilms.isNotEmpty()) {
                     item(key = "section_rail_1") {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 18.dp)
+                                .height(railHeight)
+                                .padding(bottom = 6.dp)
                         ) {
                             Text(
                                 text = "好戲就在 Apple TV 串流熱播中",
                                 color = Color.White,
-                                fontSize = 19.sp,
+                                fontSize = 17.sp,
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                            ) {
-                                items(rail1Items, key = { it.id }) { item ->
-                                    AppleTvLandscapeCard(
-                                        item = item,
-                                        onClick = { onItemClick(item) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. 第二轨道：“全部短片 · 4K 超高清”
-                if (rail2Items.isNotEmpty()) {
-                    item(key = "section_rail_2") {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 26.dp)
-                        ) {
-                            Text(
-                                text = "精选短片 · 4K 杜比视界",
-                                color = Color.White,
-                                fontSize = 19.sp,
-                                fontFamily = FontFamily.SansSerif,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                             )
 
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
                             ) {
-                                items(rail2Items, key = { it.id }) { item ->
-                                    AppleTvItemCard(
+                                items(allShortFilms, key = { it.id }) { item ->
+                                    AppleTvLandscapeCard(
                                         item = item,
                                         onClick = { onItemClick(item) },
-                                        modifier = Modifier.width(116.dp)
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .aspectRatio(1.6f)
                                     )
                                 }
                             }
                         }
                     }
-                }
-
-                // 底部留白防止底部导航栏遮挡
-                item(key = "bottom_spacer") {
-                    Spacer(modifier = Modifier.height(110.dp))
                 }
             }
         }
@@ -215,7 +183,7 @@ fun HomeScreen(
 }
 
 /**
- * 像素级复刻图3官方 Apple TV+ 巨幕焦点海报区
+ * 像素级复刻官方 Apple TV+ 巨幕焦点海报区
  */
 @Composable
 private fun AppleTvHeroSection(
@@ -224,15 +192,13 @@ private fun AppleTvHeroSection(
     onMuteToggle: () -> Unit,
     onProfileClick: () -> Unit,
     onItemClick: (FindroidItem) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
 
     if (items.isEmpty()) {
-        // 数据加载中的骨架展位
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(490.dp)
+            modifier = modifier
                 .background(Color(0xFF141416))
         )
         return
@@ -253,9 +219,7 @@ private fun AppleTvHeroSection(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(530.dp)
+        modifier = modifier
     ) {
         // 主海报横滑 Pager
         HorizontalPager(
@@ -286,7 +250,7 @@ private fun AppleTvHeroSection(
                     )
                 }
 
-                // 顶部文字暗渐变遮罩
+                // 顶部文字暗渐变遮罩（确保状态栏与 Apple TV 标题清晰）
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -313,9 +277,9 @@ private fun AppleTvHeroSection(
                             Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color(0x33000000),
-                                    Color(0xAA000000),
-                                    Color(0xFA000000),
+                                    Color(0x22000000),
+                                    Color(0x88000000),
+                                    Color(0xEE000000),
                                     Color.Black,
                                 )
                             )
@@ -329,7 +293,7 @@ private fun AppleTvHeroSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                        .padding(horizontal = 24.dp, vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // “新鲜出炉”专属小药丸标签
@@ -382,7 +346,7 @@ private fun AppleTvHeroSection(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = 5.dp),
                     ) {
                         Icon(
                             painter = painterResource(CoreR.drawable.ic_apple_tv),
@@ -413,7 +377,7 @@ private fun AppleTvHeroSection(
 
                     // 标志性操作按钮组：大白胶囊“立即播放” + 深灰圆底“+”
                     Row(
-                        modifier = Modifier.padding(top = 12.dp),
+                        modifier = Modifier.padding(top = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -466,7 +430,7 @@ private fun AppleTvHeroSection(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
+                        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
                     ) {
                         repeat(items.size) { idx ->
                             val isCurrent = pagerState.currentPage == idx
