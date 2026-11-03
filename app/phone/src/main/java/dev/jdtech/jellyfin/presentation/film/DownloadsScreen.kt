@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.downloads.DownloadsViewModel
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -52,6 +55,8 @@ import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvDownloadQueue
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvDownloadTask
 import dev.jdtech.jellyfin.presentation.film.components.TaskStatus
+import dev.jdtech.jellyfin.presentation.film.components.resolveItemImage
+import dev.jdtech.jellyfin.presentation.film.components.splitTitle
 
 @Composable
 fun DownloadsScreen(
@@ -149,21 +154,17 @@ fun AppleTvDownloadCard(
     onClick: () -> Unit,
 ) {
     val movie = task.movie
-    val (cnName, _) = remember(movie.name, movie.originalTitle) {
-        val name = movie.name.trim()
-        val orig = movie.originalTitle?.trim()
-        val splitRegex = Regex("""^([\u4e00-\u9fa50-9：·\s]+?)\s+([A-Za-z0-9\s:,'-]+)$""")
-        val match = splitRegex.matchEntire(name)
-        if (match != null) {
-            Pair(match.groupValues[1].trim(), match.groupValues[2].trim().uppercase())
-        } else if (!orig.isNullOrBlank() && orig != name) {
-            Pair(name, orig.uppercase())
-        } else {
-            Pair(name, "")
+    val (cnName, enName) = remember(movie.name, movie.originalTitle) {
+        val split = splitTitle(movie.name)
+        if (split.second != null) split
+        else {
+            val orig = movie.originalTitle?.trim()?.uppercase()
+            Pair(split.first, orig ?: "")
         }
     }
 
-    val imageUri = movie.images.primary ?: movie.images.backdrop
+    val context = LocalContext.current
+    val imageModel = resolveItemImage(context, movie)
 
     Column(
         modifier = Modifier
@@ -177,12 +178,29 @@ fun AppleTvDownloadCard(
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFF1C1C1E))
         ) {
-            AsyncImage(
-                model = imageUri,
-                contentDescription = cnName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (imageModel != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageModel)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = cnName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_film),
+                        contentDescription = null,
+                        tint = Color(0xFF48484A),
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
+            }
 
             // 底部暗渐变
             Box(
