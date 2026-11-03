@@ -77,6 +77,8 @@ import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.presentation.film.components.ActorsRow
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvMediaCache
+import dev.jdtech.jellyfin.presentation.film.components.AppleTvDownloadQueue
+import dev.jdtech.jellyfin.presentation.film.components.TaskStatus
 import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
@@ -135,6 +137,7 @@ fun MovieScreen(
 
     LaunchedEffect(true) {
         mediaViewModel.loadData()
+        AppleTvDownloadQueue.registerDownloader(downloaderViewModel.downloader)
     }
 
     LaunchedEffect(state.movie) { state.movie?.let { movie -> downloaderViewModel.update(movie) } }
@@ -394,6 +397,14 @@ private fun MovieScreenLayout(
 
                 Spacer(Modifier.height(14.dp))
 
+                // 下载状态与队列任务监控
+                val queueTasks by AppleTvDownloadQueue.tasks.collectAsStateWithLifecycle()
+                val task = queueTasks.firstOrNull { it.movie.id == movie.id }
+
+                val isDownloaded = movie.isDownloaded() || task?.status == TaskStatus.COMPLETED
+                val isDownloading = task?.status == TaskStatus.DOWNLOADING
+                val isWaiting = task?.status == TaskStatus.WAITING
+
                 // 2. Apple TV 标志性大白色药丸播放按钮 + 深灰圆形操作按钮组
                 Row(
                     modifier = Modifier
@@ -453,22 +464,19 @@ private fun MovieScreenLayout(
                         }
                     }
 
-                    // 下载圆形按钮（Apple TV 质感圆环进度与动态状态转换）
-                    val isDownloaded = movie.isDownloaded() || downloaderState.status == DownloadManager.STATUS_SUCCESSFUL
-                    val isDownloading = downloaderState.isDownloading
-
+                    // 下载圆形按钮（顺序下载队列：一次只下一个，支持排队、等待图标与实时进度）
                     Surface(
                         onClick = {
                             when {
-                                isDownloading -> {
-                                    // 正在下载中点击：取消下载
+                                isDownloading || isWaiting -> {
+                                    AppleTvDownloadQueue.cancel(movie.id)
                                     onDownloaderAction(DownloaderAction.CancelDownload(movie))
                                 }
                                 isDownloaded -> {
                                     Toast.makeText(context, "该短片已下载至本地，可离线播放", Toast.LENGTH_SHORT).show()
                                 }
                                 else -> {
-                                    onDownloaderAction(DownloaderAction.Download(movie, 0))
+                                    AppleTvDownloadQueue.enqueue(movie)
                                 }
                             }
                         },
@@ -480,54 +488,59 @@ private fun MovieScreenLayout(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            if (isDownloading) {
-                                // 外圈围绕的圆环进度条
-                                if (downloaderState.progress > 0f) {
+                            when {
+                                isDownloading -> {
+                                    // 正在下载：外圈圆环进度条，中间停止方块 ■
+                                    val currentProgress = task?.progress ?: 0.01f
                                     CircularProgressIndicator(
-                                        progress = { downloaderState.progress },
+                                        progress = { currentProgress },
                                         color = Color.White,
                                         trackColor = Color(0x33FFFFFF),
                                         strokeWidth = 2.5.dp,
                                         modifier = Modifier.fillMaxSize().padding(3.dp),
                                     )
-                                } else {
-                                    CircularProgressIndicator(
-                                        color = Color.White,
-                                        strokeWidth = 2.5.dp,
-                                        modifier = Modifier.fillMaxSize().padding(3.dp),
+                                    Box(
+                                        modifier = Modifier
+                                            .size(11.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color.White)
                                     )
                                 }
-                                // Apple 标志性停止/取消小方块 ■
-                                Box(
-                                    modifier = Modifier
-                                        .size(11.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color.White)
-                                )
-                            } else if (isDownloaded) {
-                                // 已下载状态：绿色白勾
-                                Icon(
-                                    painter = painterResource(CoreR.drawable.ic_check),
-                                    contentDescription = "已下载",
-                                    tint = Color(0xFF34C759),
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            } else {
-                                // 未下载状态：下载图标
-                                Icon(
-                                    painter = painterResource(CoreR.drawable.ic_download),
-                                    contentDescription = "下载",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(19.dp),
-                                )
+                                isWaiting -> {
+                                    // 等待下载中：专属时钟图标
+                                    Icon(
+                                        painter = painterResource(CoreR.drawable.ic_download_waiting),
+                                        contentDescription = "等待下载",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                isDownloaded -> {
+                                    // 缓存完成：绿色打勾 ✓
+                                    Icon(
+                                        painter = painterResource(CoreR.drawable.ic_check),
+                                        contentDescription = "已下载",
+                                        tint = Color(0xFF34C759),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                else -> {
+                                    // 未下载状态：纯白下载箭头
+                                    Icon(
+                                        painter = painterResource(CoreR.drawable.ic_download),
+                                        contentDescription = "下载",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // 正在下载中的实时进度与网速指示器（Apple 风格悬浮胶囊栏）
+                // 正在下载或等待排队中的实时胶囊指示栏（一次只下一个，顺序下载）
                 AnimatedVisibility(
-                    visible = downloaderState.isDownloading,
+                    visible = isDownloading || isWaiting,
                     enter = fadeIn() + expandVertically(),
                     exit = fadeOut() + shrinkVertically(),
                 ) {
@@ -550,11 +563,16 @@ private fun MovieScreenLayout(
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF0A84FF))
+                                        .background(if (isDownloading) Color(0xFF0A84FF) else Color(0xFFFF9F0A))
                                 )
                                 Spacer(Modifier.width(8.dp))
+                                val statusText = if (isDownloading) {
+                                    "正在下载 ${((task?.progress ?: 0f) * 100).toInt()}% · ${task?.speedText ?: "0 KB/s"}"
+                                } else {
+                                    "等待下载 · 排队中 (顺序下载)"
+                                }
                                 Text(
-                                    text = "正在下载 ${(downloaderState.progress * 100).toInt()}% · ${downloaderState.speedText}",
+                                    text = statusText,
                                     color = Color(0xFFE5E5EA),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
@@ -566,6 +584,7 @@ private fun MovieScreenLayout(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.clickable {
+                                        AppleTvDownloadQueue.cancel(movie.id)
                                         onDownloaderAction(DownloaderAction.CancelDownload(movie))
                                     }
                                 )
