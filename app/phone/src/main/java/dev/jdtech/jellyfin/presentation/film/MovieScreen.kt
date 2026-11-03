@@ -1,6 +1,13 @@
 package dev.jdtech.jellyfin.presentation.film
 
+import android.app.DownloadManager
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import dev.jdtech.jellyfin.models.isDownloaded
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -446,27 +453,128 @@ private fun MovieScreenLayout(
                         }
                     }
 
-                    // 下载圆形按钮
+                    // 下载圆形按钮（Apple TV 质感圆环进度与动态状态转换）
+                    val isDownloaded = movie.isDownloaded() || downloaderState.status == DownloadManager.STATUS_SUCCESSFUL
+                    val isDownloading = downloaderState.isDownloading
+
                     Surface(
                         onClick = {
-                            onDownloaderAction(DownloaderAction.Download(movie, 0))
+                            when {
+                                isDownloading -> {
+                                    // 正在下载中点击：取消下载
+                                    onDownloaderAction(DownloaderAction.CancelDownload(movie))
+                                }
+                                isDownloaded -> {
+                                    Toast.makeText(context, "该短片已下载至本地，可离线播放", Toast.LENGTH_SHORT).show()
+                                }
+                                else -> {
+                                    onDownloaderAction(DownloaderAction.Download(movie, 0))
+                                }
+                            }
                         },
                         shape = CircleShape,
-                        color = Color(0xFF2C2C2E),
+                        color = if (isDownloaded) Color(0xFF1E3A2B) else Color(0xFF2C2C2E),
                         modifier = Modifier.size(48.dp),
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_download),
-                                contentDescription = "下载",
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp),
-                            )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (isDownloading) {
+                                // 外圈围绕的圆环进度条
+                                if (downloaderState.progress > 0f) {
+                                    CircularProgressIndicator(
+                                        progress = { downloaderState.progress },
+                                        color = Color.White,
+                                        trackColor = Color(0x33FFFFFF),
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.fillMaxSize().padding(3.dp),
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.fillMaxSize().padding(3.dp),
+                                    )
+                                }
+                                // Apple 标志性停止/取消小方块 ■
+                                Box(
+                                    modifier = Modifier
+                                        .size(11.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color.White)
+                                )
+                            } else if (isDownloaded) {
+                                // 已下载状态：绿色白勾
+                                Icon(
+                                    painter = painterResource(CoreR.drawable.ic_check),
+                                    contentDescription = "已下载",
+                                    tint = Color(0xFF34C759),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            } else {
+                                // 未下载状态：下载图标
+                                Icon(
+                                    painter = painterResource(CoreR.drawable.ic_download),
+                                    contentDescription = "下载",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(18.dp))
+                // 正在下载中的实时进度与网速指示器（Apple 风格悬浮胶囊栏）
+                AnimatedVisibility(
+                    visible = downloaderState.isDownloading,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp, bottom = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(percent = 50),
+                            color = Color(0xFF1C1C1E),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0A84FF))
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "正在下载 ${(downloaderState.progress * 100).toInt()}% · ${downloaderState.speedText}",
+                                    color = Color(0xFFE5E5EA),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = "取消",
+                                    color = Color(0xFF8E8E93),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.clickable {
+                                        onDownloaderAction(DownloaderAction.CancelDownload(movie))
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
 
                 // 3. 剧情简介（优雅浅灰排版，折叠展开“更多”胶囊）
                 var isExpanded by remember { mutableStateOf(false) }

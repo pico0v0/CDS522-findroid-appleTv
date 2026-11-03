@@ -251,6 +251,58 @@ class DownloaderImpl(
         return Pair(downloadStatus, progress)
     }
 
+    override suspend fun getDetailedProgress(downloadId: Long?): DownloadProgressInfo {
+        var downloadStatus = -1
+        var progress = 0
+        var downloadedBytes = 0L
+        var totalBytes = 0L
+        if (downloadId == null) {
+            return DownloadProgressInfo(downloadStatus, progress, downloadedBytes, totalBytes)
+        }
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        try {
+            downloadManager.query(query).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    downloadStatus =
+                        cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                    when (downloadStatus) {
+                        DownloadManager.STATUS_RUNNING -> {
+                            totalBytes =
+                                cursor.getLong(
+                                    cursor.getColumnIndexOrThrow(
+                                        DownloadManager.COLUMN_TOTAL_SIZE_BYTES
+                                    )
+                                )
+                            downloadedBytes =
+                                cursor.getLong(
+                                    cursor.getColumnIndexOrThrow(
+                                        DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR
+                                    )
+                                )
+                            if (totalBytes > 0) {
+                                progress = downloadedBytes.times(100).div(totalBytes).toInt()
+                            }
+                        }
+
+                        DownloadManager.STATUS_SUCCESSFUL -> {
+                            progress = 100
+                            totalBytes =
+                                cursor.getLong(
+                                    cursor.getColumnIndexOrThrow(
+                                        DownloadManager.COLUMN_TOTAL_SIZE_BYTES
+                                    )
+                                )
+                            downloadedBytes = totalBytes
+                        }
+                    }
+                } else {
+                    downloadStatus = DownloadManager.STATUS_FAILED
+                }
+            }
+        } catch (_: Exception) {}
+        return DownloadProgressInfo(downloadStatus, progress, downloadedBytes, totalBytes)
+    }
+
     private suspend fun downloadExternalMediaStreams(
         item: FindroidItem,
         source: FindroidSource,

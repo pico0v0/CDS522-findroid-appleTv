@@ -85,17 +85,32 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
         }
     }
 
+    private var lastDownloadedBytes: Long = 0L
+    private var lastPollTimeMs: Long = 0L
+
     private fun pollDownloadProgress(downloadId: Long?) {
         handler.removeCallbacksAndMessages(null)
+        lastDownloadedBytes = 0L
+        lastPollTimeMs = System.currentTimeMillis()
         val downloadProgressRunnable =
             object : Runnable {
                 override fun run() {
                     viewModelScope.launch {
-                        val (status, progress) = downloader.getProgress(downloadId)
+                        val info = downloader.getDetailedProgress(downloadId)
+                        val now = System.currentTimeMillis()
+                        val dt = (now - lastPollTimeMs).coerceAtLeast(1)
+                        val dBytes = (info.downloadedBytes - lastDownloadedBytes).coerceAtLeast(0)
+                        val speed = (dBytes * 1000L) / dt
+                        lastDownloadedBytes = info.downloadedBytes
+                        lastPollTimeMs = now
+
                         _state.emit(
                             DownloaderState(
-                                status = status,
-                                progress = progress.coerceAtLeast(0) / 100f,
+                                status = info.status,
+                                progress = info.progress.coerceAtLeast(0) / 100f,
+                                downloadedBytes = info.downloadedBytes,
+                                totalBytes = info.totalBytes,
+                                speedBytesPerSecond = if (info.status == DownloadManager.STATUS_RUNNING) speed else 0L,
                             )
                         )
                     }
