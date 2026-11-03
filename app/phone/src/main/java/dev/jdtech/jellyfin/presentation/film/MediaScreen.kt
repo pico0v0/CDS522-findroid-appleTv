@@ -45,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import coil3.imageLoader
+import coil3.request.ImageRequest
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.media.MediaAction
 import dev.jdtech.jellyfin.film.presentation.media.MediaViewModel
@@ -75,8 +78,25 @@ fun MediaScreen(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
+    val context = LocalContext.current
+
     LaunchedEffect(true) {
         viewModel.loadData()
+    }
+
+    // 后台静默预加载所有短片的剧照背景与海报，直接缓存至本地，实现详情页点开秒显不黑屏
+    LaunchedEffect(state.mediaItems) {
+        if (state.mediaItems.isNotEmpty()) {
+            val imageLoader = context.imageLoader
+            state.mediaItems.forEach { item ->
+                item.images.primary?.let { uri ->
+                    imageLoader.enqueue(ImageRequest.Builder(context).data(uri).build())
+                }
+                item.images.backdrop?.let { uri ->
+                    imageLoader.enqueue(ImageRequest.Builder(context).data(uri).build())
+                }
+            }
+        }
     }
 
     LaunchedEffect(searchQuery) {

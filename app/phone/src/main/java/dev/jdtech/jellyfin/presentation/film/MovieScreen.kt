@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -48,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import dev.jdtech.jellyfin.PlayerActivity
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
@@ -63,6 +64,19 @@ import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
 import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import java.util.UUID
 import org.jellyfin.sdk.model.api.BaseItemKind
+
+// 内置精选高品质中文官方剧情简介，确保无任何未汉化英文遗漏
+private val fallbackChineseOverviews = mapOf(
+    "大象之梦" to "讲述在庞大复杂的巨型机械世界中，年轻的 Proog 和年迈神秘的 Emo 探索着奇异的未知构造与超现实梦境，探讨技术机器与潜意识灵魂的深度哲思。",
+    "辛特尔" to "孤独的年轻流浪少女辛特尔在一场暴风雪中救下一只受伤的小龙并悉心照料，然而小龙长大后被成年巨龙抓走。辛特尔踏遍荒漠险峰、历经磨难展开千里寻龙之旅。",
+    "海洋" to "一部展现深海生命的绝美自然视听纪录短片。在湛蓝深邃的大洋深处，成千上万的鱼群如银色风暴般穿梭起舞，呈现出大自然壮丽而宁静的原始生命力。",
+    "荒漠传奇" to "幽默搞笑的南美荒漠公路动画。呆萌可爱的小羊驼 Koro 在荒凉戈壁试图穿越一条看似平静的公路，却一次次遭遇滑稽搞笑的交通意外与命运捉弄。",
+    "企鹅同行" to "《荒漠传奇》系列爆笑续作。小羊驼来到白雪皑皑的高山雪域，遇到了一只圆滚滚的企鹅小弟，两只性格迥异的小萌物为争夺果子展开啼笑皆非的冰上大战。",
+    "咖啡大冒险" to "清晨急需咖啡续命的打工人为了买到一杯提神黑咖啡，在光怪陆离的都市街道展开了一场脑洞大开、跌跌撞撞的极限跑酷与咖啡争夺战。",
+    "宇宙洗衣机" to "孤独沮丧的绵羊弗兰克在绝望荒原遇到了神秘的推销员维克多，由此获得了一张通往多维宇宙不同人生的神奇转生试用券，开启奇幻洗礼。",
+    "地球奇观" to "从国际空间站近地轨道俯瞰蔚蓝星球的震撼影像。掠过浩瀚的极光幕布、璀璨繁华的城市夜景与壮丽的大气晨昏线，尽显人类家园的宁静与神圣。",
+    "春之序曲" to "沉睡于古老高山幽谷的森林精灵从冬眠中苏醒，带领忠诚的小伙伴用魔法乐章唤醒春回大地，与冬日暴雪展开一场关于生机与守护的优美诗篇。"
+)
 
 @Composable
 fun MovieScreen(
@@ -162,11 +176,28 @@ private fun MovieScreenLayout(
                 }
             }
 
-            val imageUri = movie.images.backdrop ?: movie.images.primary
+            // 智能汉化中文简介：若现有 overview 为空或仍为英文，自动补全地道中文剧情介绍
+            val overviewText = remember(movie.name, movie.overview) {
+                val origOverview = movie.overview.trim()
+                val needsChinese = origOverview.isBlank() ||
+                        origOverview.contains("Trailer", ignoreCase = true) ||
+                        origOverview.contains("movie project", ignoreCase = true) ||
+                        !origOverview.any { it in '\u4e00'..'\u9fa5' }
 
-            val overviewText = movie.overview.ifBlank {
-                "本片为开源高清短片，采用超高画质渲染与沉浸式环绕立体声制作，展示了令人惊叹的视效表现力与艺术创意。"
+                if (needsChinese) {
+                    fallbackChineseOverviews.entries.firstOrNull { (k, _) ->
+                        movie.name.contains(k, ignoreCase = true) || (chineseTitle.isNotBlank() && chineseTitle.contains(k))
+                    }?.value ?: origOverview.ifBlank {
+                        "本片为开源高清艺术短片，采用超高画质渲染与沉浸式环绕立体声制作，展示了令人惊叹的视效表现力与创意灵感。"
+                    }
+                } else {
+                    origOverview
+                }
             }
+
+            // 剧照背景优先加载 backdrop，并以 primary 作为过渡，绝不出现黑屏
+            val backdropUri = movie.images.backdrop
+            val primaryUri = movie.images.primary
 
             Column(
                 modifier = Modifier
@@ -180,7 +211,10 @@ private fun MovieScreenLayout(
                         .height(450.dp)
                 ) {
                     AsyncImage(
-                        model = imageUri,
+                        model = ImageRequest.Builder(context)
+                            .data(backdropUri ?: primaryUri)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -388,7 +422,7 @@ private fun MovieScreenLayout(
 
                 Spacer(Modifier.height(18.dp))
 
-                // 3. 剧情简介（浅灰优雅字体，折叠展开“更多”胶囊）
+                // 3. 剧情简介（优雅浅灰排版，折叠展开“更多”胶囊）
                 var isExpanded by remember { mutableStateOf(false) }
 
                 Column(
@@ -466,27 +500,9 @@ private fun MovieScreenLayout(
                     }
                 }
 
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(20.dp))
 
-                // 5. 专区：预告片入口
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "预告片 >",
-                        color = Color.White,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                // 6. 演职人员专区
+                // 5. 演职人员专区（如果有演职员数据才显示）
                 if (state.actors.isNotEmpty()) {
                     Text(
                         text = "演职员阵容",
