@@ -6,8 +6,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import dev.jdtech.jellyfin.presentation.components.AppleTvBottomBar
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
@@ -118,7 +126,7 @@ fun NavigationRoot(
     val setupBackStack = rememberNavBackStack(setupStartRoute)
     val navigationState =
         rememberNavigationState(
-            startRoute = HomeRoute,
+            startRoute = MediaRoute,
             topLevelRoutes = TOP_LEVEL_ROUTES,
         )
     val navigator = remember(navigationState) { Navigator(navigationState) }
@@ -144,7 +152,7 @@ fun NavigationRoot(
     if (appliedSetupMode.setupComplete != setupComplete) {
         if (setupComplete) {
             // Setup completed: discard the setup flow and land on Home.
-            navigator.navigateHome()
+            navigator.navigate(MediaRoute)
         } else {
             // Setup became incomplete: restart the setup flow at the appropriate screen.
             setupBackStack.clear()
@@ -260,39 +268,32 @@ private fun MainNavigation(
         )
     }
 
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            navigationItems.forEach { item ->
-                item(
-                    selected = topLevelRoute == item.route,
-                    onClick = {
-                        if (item.route == MediaRoute && topLevelRoute == MediaRoute) {
-                            searchExpanded.value = true
-                        }
-
-                        navigator.navigate(item.route)
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar) {
+                AppleTvBottomBar(
+                    currentRoute = topLevelRoute,
+                    onNavigate = { route ->
+                        navigator.navigate(route)
                     },
-                    icon = {
-                        Icon(
-                            painter = painterResource(item.icon),
-                            contentDescription = stringResource(item.title),
-                        )
-                    },
-                    enabled = item.enabled,
-                    label = { Text(text = stringResource(item.title)) },
                 )
             }
         },
-        layoutType = customNavSuiteType,
-        state = navigationSuiteScaffoldState,
-    ) {
-        NavDisplay(
-            entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
-            onBack = { navigator.goBack() },
-            transitionSpec = { GLOBAL_TRANSITION_SPEC },
-            popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
-            predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
-        )
+        containerColor = Color(0xFF000000),
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding())
+        ) {
+            NavDisplay(
+                entries = navigationState.toDecoratedEntries(entryDecorators, entryProvider),
+                onBack = { navigator.goBack() },
+                transitionSpec = { GLOBAL_TRANSITION_SPEC },
+                popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
+                predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
+            )
+        }
     }
 }
 
@@ -421,7 +422,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         goBack = navigator::goBack,
         navigateOrReuse = navigator::navigateOrReuse,
         showBack = true,
-        onSetupComplete = { navigator.navigateHome() },
+        onSetupComplete = { navigator.navigate(MediaRoute) },
         permissionViewModel = permissionViewModel,
         permissionApplicable = permissionApplicable,
     )
@@ -452,6 +453,9 @@ private fun EntryProviderScope<NavKey>.mainEntries(
             onFavoritesClick = dropUnlessResumed { navigator.navigate(FavoritesRoute) },
             searchExpanded = searchExpanded.value,
             onSearchExpand = { searchExpanded.value = it },
+            onSettingsClick = dropUnlessResumed {
+                navigator.navigate(SettingsRoute(indexes = listOf(CoreR.string.title_settings)))
+            },
         )
     }
     entry<DownloadsRoute> {
@@ -492,7 +496,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         MovieScreen(
             movieId = UUID.fromString(key.movieId),
             navigateBack = dropUnlessResumed { navigator.goBack() },
-            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+            navigateHome = dropUnlessResumed { navigator.navigate(MediaRoute) },
             navigateToPerson =
                 resumedAction { personId ->
                     navigator.navigate(PersonRoute(personId = personId.toString()))
@@ -503,7 +507,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         ShowScreen(
             showId = UUID.fromString(key.showId),
             navigateBack = dropUnlessResumed { navigator.goBack() },
-            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+            navigateHome = dropUnlessResumed { navigator.navigate(MediaRoute) },
             navigateToItem =
                 resumedAction { item ->
                     navigateToItem(
@@ -521,7 +525,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         SeasonScreen(
             seasonId = UUID.fromString(key.seasonId),
             navigateBack = dropUnlessResumed { navigator.goBack() },
-            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+            navigateHome = dropUnlessResumed { navigator.navigate(MediaRoute) },
             navigateToItem =
                 resumedAction { item ->
                     navigateToItem(
@@ -539,7 +543,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         EpisodeScreen(
             episodeId = UUID.fromString(key.episodeId),
             navigateBack = dropUnlessResumed { navigator.goBack() },
-            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+            navigateHome = dropUnlessResumed { navigator.navigate(MediaRoute) },
             navigateToPerson =
                 resumedAction { personId ->
                     navigator.navigate(PersonRoute(personId = personId.toString()))
@@ -554,7 +558,7 @@ private fun EntryProviderScope<NavKey>.mainEntries(
         PersonScreen(
             personId = UUID.fromString(key.personId),
             navigateBack = dropUnlessResumed { navigator.goBack() },
-            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+            navigateHome = dropUnlessResumed { navigator.navigate(MediaRoute) },
             navigateToItem =
                 resumedAction { item ->
                     navigateToItem(
