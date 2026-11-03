@@ -22,7 +22,9 @@ data class DownloaderState(
 
     val speedText: String
         get() {
-            if (speedBytesPerSecond <= 0L) return "正在连接..."
+            if (speedBytesPerSecond <= 0L) {
+                return "0 KB/s"
+            }
             val mb = speedBytesPerSecond / (1024.0 * 1024.0)
             return if (mb >= 1.0) {
                 String.format(Locale.US, "%.1f MB/s", mb)

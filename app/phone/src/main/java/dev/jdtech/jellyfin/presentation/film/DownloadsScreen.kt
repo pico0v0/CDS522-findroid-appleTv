@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
@@ -64,11 +65,16 @@ private fun DownloadsScreenLayout(state: CollectionState, onAction: (CollectionA
             Modifier.fillMaxSize()
                 .recalculateWindowInsets()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = Color(0xFF000000),
         topBar = {
             TopAppBar(
-                title = { Text(text = stringResource(CoreR.string.title_download)) },
+                title = { Text(text = stringResource(CoreR.string.title_download), color = Color.White) },
                 windowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
                 scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF000000),
+                    titleContentColor = Color.White
+                ),
             )
         },
         contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),

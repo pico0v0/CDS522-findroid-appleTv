@@ -85,13 +85,15 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
         }
     }
 
-    private var lastDownloadedBytes: Long = 0L
+    private var lastDownloadedBytes: Long = -1L
     private var lastPollTimeMs: Long = 0L
+    private var currentFilteredSpeed: Long = 0L
 
     private fun pollDownloadProgress(downloadId: Long?) {
         handler.removeCallbacksAndMessages(null)
-        lastDownloadedBytes = 0L
+        lastDownloadedBytes = -1L
         lastPollTimeMs = System.currentTimeMillis()
+        currentFilteredSpeed = 0L
         val downloadProgressRunnable =
             object : Runnable {
                 override fun run() {
@@ -99,10 +101,23 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
                         val info = downloader.getDetailedProgress(downloadId)
                         val now = System.currentTimeMillis()
                         val dt = (now - lastPollTimeMs).coerceAtLeast(1)
-                        val dBytes = (info.downloadedBytes - lastDownloadedBytes).coerceAtLeast(0)
-                        val speed = (dBytes * 1000L) / dt
-                        lastDownloadedBytes = info.downloadedBytes
-                        lastPollTimeMs = now
+
+                        if (lastDownloadedBytes == -1L) {
+                            lastDownloadedBytes = info.downloadedBytes
+                            lastPollTimeMs = now
+                        } else {
+                            val dBytes = (info.downloadedBytes - lastDownloadedBytes).coerceAtLeast(0)
+                            val instantSpeed = (dBytes * 1000L) / dt
+                            lastDownloadedBytes = info.downloadedBytes
+                            lastPollTimeMs = now
+
+                            currentFilteredSpeed = if (dBytes > 0) {
+                                if (currentFilteredSpeed == 0L) instantSpeed
+                                else (currentFilteredSpeed * 0.35 + instantSpeed * 0.65).toLong()
+                            } else {
+                                (currentFilteredSpeed * 0.5).toLong()
+                            }
+                        }
 
                         _state.emit(
                             DownloaderState(
@@ -110,7 +125,7 @@ class DownloaderViewModel @Inject constructor(private val downloader: Downloader
                                 progress = info.progress.coerceAtLeast(0) / 100f,
                                 downloadedBytes = info.downloadedBytes,
                                 totalBytes = info.totalBytes,
-                                speedBytesPerSecond = if (info.status == DownloadManager.STATUS_RUNNING) speed else 0L,
+                                speedBytesPerSecond = if (info.status == DownloadManager.STATUS_RUNNING) currentFilteredSpeed else 0L,
                             )
                         )
                     }
