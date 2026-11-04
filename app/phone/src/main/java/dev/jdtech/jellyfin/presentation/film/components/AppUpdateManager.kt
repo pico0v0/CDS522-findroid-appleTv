@@ -180,7 +180,8 @@ object AppUpdateManager {
         val list = mutableListOf<String>()
         val clean = rawUrl.trim().trimEnd('/')
 
-        // 1. 直接拼接原始 baseUrl
+        // 1. 直接拼接原始 baseUrl (优先支持 Jellyfin 内置静态 web 路径)
+        list.add("$clean/web/version.json")
         list.add("$clean/version.json")
         list.add("$clean/update/version.json")
 

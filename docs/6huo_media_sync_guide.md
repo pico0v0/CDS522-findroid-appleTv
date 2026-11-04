@@ -173,15 +173,15 @@ $FF -nostdin -hide_banner -loglevel error -y \
 > 每次重新编译并分发 APK 时，**必须且只能同时修改两处版本号**：
 > 1. **代码内源码版本**：`findroid/buildSrc/src/main/kotlin/Versions.kt`
 >    ```kotlin
->    const val APP_CODE = 35        // 必须递增，例如 34 -> 35
->    const val APP_NAME = "1.2.1"     // 对应版本名，例如 1.2.0 -> 1.2.1
+>    const val APP_CODE = 36        // 必须递增，例如 35 -> 36
+>    const val APP_NAME = "1.2.2"     // 对应版本名，例如 1.2.1 -> 1.2.2
 >    ```
 > 2. **服务端声明文件**：`version.json`
 >    ```json
 >    {
->      "versionCode": 35,
->      "versionName": "1.2.1",
->      "downloadUrl": "/Findroid-AppleTV-Demo.apk"
+>      "versionCode": 36,
+>      "versionName": "1.2.2",
+>      "downloadUrl": "/web/Findroid-AppleTV-Demo.zip"
 >    }
 >    ```
 > **若仅修改 `version.json` 而未修改 `Versions.kt`**，客户端下载安装后本地依然是旧的 `APP_CODE`，会再次判定为可更新，导致**陷入无限弹窗提示更新**的死循环！
