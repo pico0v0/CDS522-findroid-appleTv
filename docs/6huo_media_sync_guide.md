@@ -84,6 +84,9 @@ headers = {
 - **请求体**: `{"Username": JELLYFIN_ADMIN_USER, "Pw": JELLYFIN_ADMIN_PASSWORD}`
 - **返回数据**: `response["AccessToken"]`
 
+> [!IMPORTANT]
+> Jellyfin 的 `/Users/AuthenticateByName` 端点**强制校验客户端元数据**。请求头中必须显式携带 `Authorization: MediaBrowser Client="...", Device="...", DeviceId="...", Version="..."` 格式头，否则服务端会直接返回 `HTTP 400 Bad Request`（初次调用常因遗漏此 Header 导致鉴权报 400）。
+
 后续所有 API 请求在 Header 中携带：
 ```python
 headers = {'Authorization': f'MediaBrowser Token="{token}"'}
@@ -118,9 +121,10 @@ detail['OfficialRating'] = "PG-13"              # G / PG / PG-13 / 18+
 - **请求头**: `Content-Type: image/jpeg`
 - **请求体**: 海报文件 bytes 转成的 **Base64 字符串** (utf-8 编码 bytes)。
 
-### 3.5 上传 Backdrop 宽屏背景剧照（避坑：避免多图堆叠）
-- **接口**: `POST {JELLYFIN_SERVER_URL}/Items/{item_id}/Images/Backdrop/0`
-- **重要规范**：必须显式指定索引 `/0`！若不指定索引，Jellyfin 会不断向剧照列表追加图片，导致详情页顶部轮播多张不同来源背景。
+### 3.5 上传 Backdrop 宽屏背景剧照（避坑：先删后加）
+- **删除接口**: `DELETE {JELLYFIN_SERVER_URL}/Items/{item_id}/Images/Backdrop/{index}`（必须从最大索引倒序删到 0）
+- **上传接口**: `POST {JELLYFIN_SERVER_URL}/Items/{item_id}/Images/Backdrop/{index}`，`index` 从 0 递增
+- **重要规范**：只覆写 `/0` 是**错误**的——历史剧照会残留在 `/1`、`/2`，客户端轮播到旧图甚至其它影片的错图。正确顺序是「先全量 DELETE，再按序号 POST」，保证剧照集合与本次抽帧结果完全一致。
 
 ---
 
@@ -132,21 +136,28 @@ Findroid 客户端详情页和首页组件内嵌了 `splitTitle` 逻辑：
 - 示例：`欢迎来龙餐馆 Once Upon a Time in the Middle East`
 - 显示效果：第一行大字呈现中文名，第二行小字呈现英文副标题，贴合 Apple TV 原生排版美学。
 
-### 4.2 预告片原片 16:9 剧照自动截帧
-为保证详情页顶部背景剧照（Backdrop）与视频内容 100% 契合且无黑边拉伸，采用 OpenCV 从 Jellyfin 视频流中直接抽帧：
-```python
-import cv2
+### 4.2 预告片原片 16:9 剧照抽帧（服务端 ffmpeg + 内嵌字幕过滤）
+OpenCV 通过 `stream.mp4` 逐秒 seek 实测**不可用**：每次 seek 都会重开 HTTP 流并重新解码，单部预告片采样 70 帧耗时超过 4 分钟。改用服务端容器内自带的 ffmpeg 直接抽帧：
 
-stream_url = f'{JELLYFIN_SERVER_URL}/Videos/{item_id}/stream.mp4?static=true&api_key={token}'
-cap = cv2.VideoCapture(stream_url)
-cap.set(cv2.CAP_PROP_POS_MSEC, frame_sec * 1000) # 跳转至指定秒数
-ret, frame = cap.read()
-cap.release()
-
-if ret:
-    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-    backdrop_bytes = buffer.tobytes()
+```bash
+# Jellyfin 容器内路径：/usr/lib/jellyfin-ffmpeg/ffmpeg
+# -ss 必须放在 -i 之后（输出定位），否则只对齐关键帧，与预期时间点偏差可达 ±2s
+$FF -nostdin -hide_banner -loglevel error -y \
+    -i "/media/寒戰1994.mp4" -ss 66 -frames:v 1 -q:v 2 /tmp/sl/hanzhan_066.jpg < /dev/null
 ```
+
+- `-nostdin` 与 `< /dev/null` 二者缺一不可：批量循环中 ffmpeg 会吃掉脚本 stdin 并停在 `Transcoding is paused. Press [u] to resume.`，导致后续帧静默丢失。
+- 帧质量硬门槛（在**原始分辨率**上判定，缩到 480px 会抹掉 12–18px 高的内嵌字幕，把带字幕帧误判为干净）：
+  | 判定项 | 阈值 | 处理 |
+  | :--- | :--- | :--- |
+  | 画面亮度均值 | < 46 | 丢弃（详情页顶部呈纯黑） |
+  | 画面标准差 | < 24 | 丢弃（纯色/转场帧） |
+  | 内容行占比（黑边检测） | < 62% | 丢弃 |
+  | 底部 28% 白字连通域 | ≥ 8 个且成 1–2 行 | 丢弃（内嵌字幕） |
+  | 中部大字号连通域 | ≥ 4 个 | 丢弃（标题卡/厂标卡） |
+  | 顶部发行信息条 | — | 预告片普遍存在，无法规避，可接受 |
+- 每部保留 1–3 张彼此差异明显的剧照：感知哈希（8×8 aHash）汉明距离 ≥ 14，时间点间隔 ≥ 12s。
+- 极端暗片源（如《生化危机：爆发夜》全部实拍帧均值 < 20）可退化为使用片名标题卡作为唯一 Backdrop。
 
 ---
 
@@ -418,8 +429,15 @@ for it in items:
     except Exception as e:
         print(f"  -> Poster error: {e}")
 
-    # 4.3 截取预告片 16:9 精彩画面作为 Backdrop（覆盖 /Backdrop/0）
+    # 4.3 覆写 Backdrop：先倒序删除全部旧剧照，再上传本帧（多图集请改用 §4.2 服务端抽帧）
     try:
+        old_tags = detail.get('BackdropImageTags') or []
+        for idx in range(len(old_tags) - 1, -1, -1):
+            del_req = urllib.request.Request(
+                f'{JELLYFIN_URL}/Items/{item_id}/Images/Backdrop/{idx}', method='DELETE',
+                headers={'Authorization': f'MediaBrowser Token="{token}"'})
+            urllib.request.urlopen(del_req, timeout=15).read()
+
         stream_url = f'{JELLYFIN_URL}/Videos/{item_id}/stream.mp4?static=true&api_key={token}'
         cap = cv2.VideoCapture(stream_url)
         cap.set(cv2.CAP_PROP_POS_MSEC, matched['frame_sec'] * 1000)
@@ -434,7 +452,7 @@ for it in items:
                 headers={'Content-Type': 'image/jpeg', 'Authorization': f'MediaBrowser Token="{token}"'}
             )
             urllib.request.urlopen(up_backdrop, timeout=15)
-            print(f"  -> Video Frame Backdrop uploaded ({frame.shape[1]}x{frame.shape[0]}).")
+            print(f"  -> Backdrop reset: dropped {len(old_tags)} old, uploaded 1 ({frame.shape[1]}x{frame.shape[0]}).")
     except Exception as e:
         print(f"  -> Backdrop error: {e}")
 
@@ -446,7 +464,7 @@ print(f"\nALL DONE: {len(config)} item(s) synced successfully!")
 
 ---
 
-## 7. 核心排错备忘录（三大实战避坑指南）
+## 7. 核心排错备忘录（四大实战避坑指南）
 
 ### 坑一：6huo 搜索假命中与繁简体文件名分歧
 - **现象**：按关键词搜索时，前几个卡片经常并非目标影片，而是固定出现侧边栏热搜榜的《我们仅有一次的人生》或《生化危机：爆发夜》。
@@ -458,6 +476,21 @@ print(f"\nALL DONE: {len(config)} item(s) synced successfully!")
   1. 豆瓣 CDN 具备防盗链，请求头中必须包含 `'Referer': 'https://movie.douban.com/'`；
   2. 豆瓣某些大图实际上是 WebP 或 PNG 格式，Jellyfin 的 `/Images/Primary` 接口严格要求必须为合法的 JPEG 字节流。脚本中已集成 PIL `Image.open(io.BytesIO(bytes))` 自动检测，若格式非 JPEG 则实时无损转码为 RGB JPEG 后再做 Base64 编码上传。
 
-### 坑三：Backdrop 宽屏剧照覆盖（避免多图堆叠混乱）
-- **现象**：多次执行同步脚本后，手机端短片详情页顶部的剧照在滑动或加载时频繁闪烁或呈现非预期的其它图片。
-- **根因与修复**：Jellyfin API 对 Backdrop 支持多张剧照列表。如果 POST 端点未指定索引，服务端默认执行追加（Append）操作，累积数张剧照。因此上传端点**必须精确锁定在 `/Images/Backdrop/0`**，确保每一次抽帧都精准覆写主剧照，避免多图堆叠。
+### 坑三：Backdrop 多图堆叠与错图残留
+- **现象**：详情页顶部轮播出现与本片无关的背景（实测《疾速追杀》挂着雪山风景、《生化危机》挂着欧洲古城，均非本片镜头），或同一张剧照重复出现 2–3 次。
+- **根因**：历史版本只覆写 `/Images/Backdrop/0`，早期一次误用不带索引的 POST 又把帧追加到 `/1`、`/2`；这些残留项此后从未被清理，Jellyfin 也不会自动去重。
+- **修复**：见 §3.5 的「先删后加」流程；并遵守 §4.2 的原始分辨率字幕/亮度过滤，任何未通过过滤的帧一律不上传。
+- **验收**：`GET /Items?IncludeItemTypes=Movie,Video&Fields=BackdropImageTags` 统计张数，再逐张下载肉眼复核（缩略图复核无效，理由见 §4.2）。
+
+### 坑四：`/media` 只读挂载导致 `DELETE /Items/{id}` 报 500
+- **现象**：调用 `DELETE /Items/{itemId}` 返回 `HTTP 500 Error processing request`，容器日志给出真因：
+  `Read-only file system : '/media/xxx.mp4'` 或 `Access to the path '/media/xxx' is denied`。
+- **根因**：生产容器仅 `/config` 为读写挂载，`/media` 以 `ro` 方式挂载（容器内 `cat /proc/mounts` 可见 `/dev/vda2 /media ext4 ro,relatime`）。
+  Jellyfin 删除条目时会连带尝试删除真实文件，写操作被只读挂载拒绝，整个事务回滚，条目留在库里。
+- **正确流程（先移文件、再删条目）**：
+  1. 宿主机把媒体移出扫描目录（建议先移入回收目录，保留一次反悔机会）：
+     `mkdir -p /root/jellyfin-demo/trash-<date> && cd /root/jellyfin-demo/media && mv '<file|folder>' ../trash-<date>/`
+  2. `POST /Library/Refresh`，等待扫描完成（此时条目的 `ImageTags`/`BackdropImageTags` 已被清空）。
+  3. 再调 `DELETE /Items/{itemId}`，返回 `204`，条目与 `/config/metadata/library/<xx>/<id>/` 一并清除。
+  4. 验收：`GET /Items?Recursive=true&IncludeItemTypes=Movie,Video` 计数，并确认宿主机 `ls /root/jellyfin-demo/media | wc -l` 与条目数一致。
+- **注意**：只读挂载同样意味着任何「由服务端写回 `/media`」的方案（转码产物、字幕下载、API 上传原片）在本环境不可用；新增影片一律走宿主机 `scp`/`mv` 落盘后再刷新。
