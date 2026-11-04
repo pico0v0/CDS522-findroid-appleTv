@@ -63,6 +63,7 @@ import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvLandscapeCard
 import dev.jdtech.jellyfin.presentation.film.components.AppleTvMediaCache
+import dev.jdtech.jellyfin.presentation.film.components.AppUpdateManager
 import dev.jdtech.jellyfin.presentation.film.components.resolveItemImage
 import dev.jdtech.jellyfin.presentation.film.components.splitTitle
 import kotlinx.coroutines.delay
@@ -82,6 +83,11 @@ fun HomeScreen(
 
     LaunchedEffect(true) {
         viewModel.loadData()
+        try {
+            AppUpdateManager.customBaseUrl = viewModel.repository.getBaseUrl()
+        } catch (_: Exception) {}
+        delay(2500L)
+        AppUpdateManager.checkForUpdate(context, isManual = false)
     }
 
     // 汇总所有可用短片（融合推荐、视图与全局预加载缓存）
@@ -133,6 +139,7 @@ fun HomeScreen(
                         onMuteToggle = { isMuted = !isMuted },
                         onProfileClick = onSettingsClick,
                         onItemClick = onItemClick,
+                        onCheckUpdateClick = { AppUpdateManager.checkForUpdate(context, isManual = true) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(heroHeight),
@@ -192,6 +199,7 @@ private fun AppleTvHeroSection(
     onMuteToggle: () -> Unit,
     onProfileClick: () -> Unit,
     onItemClick: (FindroidItem) -> Unit,
+    onCheckUpdateClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -447,7 +455,7 @@ private fun AppleTvHeroSection(
             }
         }
 
-        // 顶层 Apple TV 专属导航栏（大标题 + 静音 + 用户头像）
+        // 顶层 Apple TV 专属导航栏（大标题 + 静音 + 在线更新 + 用户头像）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -481,6 +489,23 @@ private fun AppleTvHeroSection(
                     Icon(
                         painter = painterResource(if (isMuted) CoreR.drawable.ic_volume_0 else CoreR.drawable.ic_volume),
                         contentDescription = "静音切换",
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+
+                // 检查更新按钮
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2C2C2E))
+                        .clickable { onCheckUpdateClick() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(CoreR.drawable.ic_download),
+                        contentDescription = "检查更新",
                         tint = Color.White,
                         modifier = Modifier.size(17.dp),
                     )

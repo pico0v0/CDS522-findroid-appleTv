@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import dev.jdtech.jellyfin.presentation.components.AppleTvBottomBar
+import dev.jdtech.jellyfin.presentation.film.components.AppleTvUpdateDialog
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
@@ -292,6 +293,7 @@ private fun MainNavigation(
                 popTransitionSpec = { GLOBAL_TRANSITION_SPEC },
                 predictivePopTransitionSpec = { _ -> GLOBAL_TRANSITION_SPEC },
             )
+            AppleTvUpdateDialog()
         }
     }
 }
