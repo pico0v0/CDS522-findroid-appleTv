@@ -34,6 +34,8 @@ class MainActivity : AppCompatActivity() {
                             hasCurrentUser = state.hasCurrentUser,
                         )
                     }
+                } else {
+                    dev.jdtech.jellyfin.presentation.components.AppleTvSplashScreen()
                 }
             }
         }

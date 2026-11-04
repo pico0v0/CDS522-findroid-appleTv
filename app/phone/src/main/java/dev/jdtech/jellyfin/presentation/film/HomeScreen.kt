@@ -114,11 +114,14 @@ fun HomeScreen(
 
     var isMuted by remember { mutableStateOf(true) }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
+    if (state.isLoading && allShortFilms.isEmpty()) {
+        dev.jdtech.jellyfin.presentation.components.AppleTvSplashScreen()
+    } else {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
         // 动态计算尺寸：给上方海报留出尽可能大的空间，下方热播栏沉底贴近底部导航栏，彻底消除黑边空隙
         val railHeight = 162.dp
         val heroHeight = (maxHeight - railHeight).coerceAtLeast(530.dp)
@@ -187,6 +190,7 @@ fun HomeScreen(
             }
         }
     }
+}
 }
 
 /**

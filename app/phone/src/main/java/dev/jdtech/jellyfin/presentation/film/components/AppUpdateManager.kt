@@ -86,7 +86,13 @@ object AppUpdateManager {
             return
         }
 
-        val baseUrl = serverUrl ?: customBaseUrl ?: "http://113.125.2.92:8096"
+        val baseUrl = serverUrl ?: customBaseUrl.orEmpty()
+        if (baseUrl.isBlank()) {
+            if (isManual) {
+                _status.value = UpdateStatus.Error("未获取到服务器连接地址，请登录后重试")
+            }
+            return
+        }
         val (currentCode, _) = getCurrentVersion(context)
 
         scope.launch {
@@ -178,19 +184,13 @@ object AppUpdateManager {
         list.add("$clean/version.json")
         list.add("$clean/update/version.json")
 
-        // 2. 剥除端口后的主机根路径 (例如将 http://113.125.2.92:8096 转为 http://113.125.2.92/version.json)
+        // 2. 剥除端口后的主机根路径 (例如将 http://host:8096 转为 http://host/version.json)
         val hostOnly = clean.replace(Regex(":\\d+$"), "")
         if (hostOnly != clean) {
             list.add("$hostOnly/version.json")
             list.add("$hostOnly/update/version.json")
         }
 
-        // 3. 固化兜底云服务器地址
-        val defaultServer = "http://113.125.2.92"
-        if (!clean.contains("113.125.2.92")) {
-            list.add("$defaultServer/version.json")
-            list.add("$defaultServer:8096/version.json")
-        }
 
         return list.distinct()
     }
