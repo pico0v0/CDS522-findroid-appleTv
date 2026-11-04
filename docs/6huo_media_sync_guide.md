@@ -12,8 +12,8 @@
 3. [Jellyfin 服务端 API 对接规范](#3-jellyfin-服务端-api-对接规范)
 4. [双语标题与背景剧照抽帧规范](#4-双语标题与背景剧照抽帧规范)
 5. [Android 客户端 (Findroid) 本地适配与发版规范](#5-android-客户端-findroid-本地适配与发版规范)
-6. [全自动 Python 同步脚本完整实现（含 10 部影视配置）](#6-全自动-python-同步脚本完整实现含-10-部影视配置)
-7. [核心排错备忘录（三大实战避坑指南）](#7-核心排错备忘录三大实战避坑指南)
+6. [全自动 Python 同步脚本完整实现（含 16 部影视配置）](#6-全自动-python-同步脚本完整实现含-16-部影视配置)
+7. [核心排错备忘录（五大实战避坑指南）](#7-核心排错备忘录五大实战避坑指南)
 
 ---
 
@@ -59,18 +59,49 @@ headers = {
 ### 2.2 搜索结果解析（避坑：搜索假命中）
 > [!WARNING] 搜索假命中避坑
 > 6huo 的搜索结果页面侧边栏包含全局《热搜榜》列表。如果直接在整个 HTML 中用正则匹配 `<li>.../movie/...</li>`，会导致无论搜索任何关键词，前 7 个结果永远是热搜榜项目（如《我们仅有一次的人生》、《生化危机：爆发夜》等）。  
-> **正确做法**：必须限定提取主内容区 `<div class="inner-2col-main">` 容器内部的列表项！
+> **正确做法**：只提取真实结果区块。站点改版后该区块的定位方式为：
+> - 热搜榜容器：`<div id="topsearch-wrapper" class="wrapper topsearch-wrapper">`（**必须排除**）
+> - 真实结果：位于 `<h1 class="tabs-title">搜索电影: {关键词}</h1>` 之后、下一个 `<div class="wrapper` 之前
+> - 卡片正则：`href="(/movie/\d+)"[^>]*><img[^>]+alt="([^"]*)".*?item-pubtime" title="([^"]*)"`
+>
+> 旧文档里写的 `<div class="inner-2col-main">` 容器已不存在（改版后 `html.count('inner-2col-main') == 0`），沿用会静默退化成整页匹配，从而把热搜榜当成搜索结果。
+
+### 2.2.1 搜索接口可靠性缺陷与列表页兜底（重要）
+实测（2026-11-04）`/?view=search&keyword=` 本身**不可靠**，不能作为唯一定位手段：
+
+| 现象 | 实例 |
+| :--- | :--- |
+| 在架影片搜不到 | `奥德赛`、`戴帽子的猫`、`玩具总动员`、`生化危机` 均返回 `404 Not Found`（页面仅 578 字节），但这些片子在 `/allmovies` 列表里都有 |
+| 全角标点导致失败 | `饥饿游戏：收获日出` 404，改用 `收获日出` 才命中 |
+| 无结果同样返回 404 | 因此 404 既可能是「查不到」也可能是「真没有」，不可据此判定影片不存在 |
+
+**兜底做法（本次采用，命中率 6/6）**：遍历列表页建立本地索引后再匹配，绕开搜索接口。
+```python
+for base in ('/allmovies', '/later', '/hd'):
+    for page in range(1, 13):
+        path = base if page == 1 else '%s?page=%d' % (base, page)   # 页面无分页链接，但 ?page= 有效
+        # 每页约 37 张卡片；连续一页无新增即停
+```
+本次 3 个来源共采集 **367 部**去重条目。注意每个列表页头部同样挂着 7 条热搜榜，需按 `href` 去重并剔除。
+另外，站内官方片名可能与文件名不同，匹配要用关键词子串而非全等：《星球大战：曼达洛人与古古》站内条目为 **《曼达洛人与古古》**（`/movie/71301`），《超级马力欧银河》站内为 **《超级马力欧银河大电影》**（`/movie/71298`）。
 
 ### 2.3 电影详情页数据提取 (`https://www.6huo.com/movie/{MOVIE_ID}`)
 | 字段名称 | 提取规则 | 示例值 |
 | :--- | :--- | :--- |
-| **中文片名** | `<h1 class="movie-name">(.*?)<span>` | `欢迎来龙餐馆` |
-| **英文/外文名** | `<table class="tlist">` 中的 `原名` 或 `又名` | `Once Upon a Time in the Middle East` |
-| **上映年份** | 正则匹配 `上映[时间日期]*[：:]\s*([0-9]{4})` | `2026` |
-| **具体上映日期** | `上映[：:]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})` | `2026-08-11` |
-| **影片类型** | `<table class="tlist">` 中的 `类型`（滤除国家标签） | `['剧情', '喜剧', '战争']` |
-| **官方剧情简介** | `id="content-summary"` 或 `<div class="movie-summary-content">` 正文 | 撤侨守护与中餐厅剧情 |
-| **官方高品质海报** | `<div class="movie-title-mpic"><img src="(.*?)"` | `https://www.6huo.com/files/mpic/202401/p46634.jpg?5306` |
+| **中文片名** | `<h1 class="movie-name" ...>名 <span>外文名</span>`（取 `<span>` 前部分） | `玩具总动员5` |
+| **英文/外文名** | 同上 `<span>` 内容；缺失时退用信息表 `又名` | `Toy Story 5` |
+| **信息表定位** | `<h2 class="list-title"> 电影信息 </h2>` 之后**第一个** `<table class="tlist">` | — |
+| **上映年份** | 信息表 `上映` 行内首个 `(\d{4})` | `2026` |
+| **具体上映日期** | 信息表 `上映` 行内首个 `(\d{4}-\d{2}-\d{2})`，写入 `PremiereDate` 需补 `T00:00:00.0000000Z` | `2026-06-19` |
+| **影片类型** | 信息表 `类型` 行，按 ` / ` 切分（该行只含 `/movietype/` 链接，不含国家标签） | `['剧情', '喜剧', '动画']` |
+| **官方剧情简介** | 信息表 `剧情` 行或 `<h2 class="list-title">剧情</h2>` 区块正文 | 见下方 SEO 尾巴说明 |
+| **豆瓣条目号** | `movie\.douban\.com/subject/(\d+)` | `36238849` |
+| **官方高品质海报** | `<div class="movie-title-mpic">.*?<img src="([^"]+)"`（注意与旧写法不同，`src` 不在紧邻位置） | `https://www.6huo.com/files/mpic/202406/p75203.jpg?5753` |
+
+> [!IMPORTANT] 简介字段带 SEO 尾巴，必须清洗
+> 6huo 的剧情正文会在真实简介后拼接固定句式：`《片名》的上映日期是…。《片名》的别名有：…。`
+> 直接入库会让客户端详情页简介出现机器味文案。清洗规则：循环剔除 `《.{1,24}》的(上映日期|别名|又名)[^。]*。` 直至不再命中。
+> 另有两点需要人工留意：部分条目简介本身以 `…` 截断（站方即如此，无更全版本）；个别条目站方「剧情」实为影评式文字（如《给阿嬷的情书》），入库前需肉眼判断，**不要**自行改写或代拟简介。
 
 ---
 
@@ -147,6 +178,7 @@ $FF -nostdin -hide_banner -loglevel error -y \
 ```
 
 - `-nostdin` 与 `< /dev/null` 二者缺一不可：批量循环中 ffmpeg 会吃掉脚本 stdin 并停在 `Transcoding is paused. Press [u] to resume.`，导致后续帧静默丢失。
+- 吞吐预期：因为 `-ss` 放在 `-i` 之后（为保证帧精确需从头解码），原生分辨率单帧约 **12–16 秒**，180 帧一批约 45 分钟。据此决定采样密度——6 部新片按每 4 秒一点共 180 帧即可覆盖，不必更密。
 - 帧质量硬门槛（在**原始分辨率**上判定，缩到 480px 会抹掉 12–18px 高的内嵌字幕，把带字幕帧误判为干净）：
   | 判定项 | 阈值 | 处理 |
   | :--- | :--- | :--- |
@@ -195,7 +227,7 @@ Copy-Item "findroid\app\phone\build\outputs\apk\libre\debug\phone-libre-arm64-v8
 
 ---
 
-## 6. 全自动 Python 同步脚本完整实现（含 10 部影视配置）
+## 6. 全自动 Python 同步脚本完整实现（含 16 部影视配置）
 
 脚本保存路径：`db-lab/sync_6huo_authentic_data.py`。
 客户端标识全局统一使用 `Client="admin-tool"`，支持：
@@ -464,7 +496,7 @@ print(f"\nALL DONE: {len(config)} item(s) synced successfully!")
 
 ---
 
-## 7. 核心排错备忘录（四大实战避坑指南）
+## 7. 核心排错备忘录（五大实战避坑指南）
 
 ### 坑一：6huo 搜索假命中与繁简体文件名分歧
 - **现象**：按关键词搜索时，前几个卡片经常并非目标影片，而是固定出现侧边栏热搜榜的《我们仅有一次的人生》或《生化危机：爆发夜》。
@@ -490,7 +522,16 @@ print(f"\nALL DONE: {len(config)} item(s) synced successfully!")
 - **正确流程（先移文件、再删条目）**：
   1. 宿主机把媒体移出扫描目录（建议先移入回收目录，保留一次反悔机会）：
      `mkdir -p /root/jellyfin-demo/trash-<date> && cd /root/jellyfin-demo/media && mv '<file|folder>' ../trash-<date>/`
-  2. `POST /Library/Refresh`，等待扫描完成（此时条目的 `ImageTags`/`BackdropImageTags` 已被清空）。
-  3. 再调 `DELETE /Items/{itemId}`，返回 `204`，条目与 `/config/metadata/library/<xx>/<id>/` 一并清除。
+  2. `POST /Library/Refresh` 并轮询条目列表。实测有两种结局，都要以最终计数为准：
+     - 常见：扫描直接把条目摘掉（本次移除 6 个测试片即如此，无需再调 DELETE，`/config/metadata` 也一并回收）；
+     - 另一种：条目仍在库里但 `ImageTags`/`BackdropImageTags` 已清空（本次移除《辛特尔》等 3 部即如此）。
+  3. 若条目仍在，再调 `DELETE /Items/{itemId}`，返回 `204`，条目与 `/config/metadata/library/<xx>/<id>/` 一并清除。
   4. 验收：`GET /Items?Recursive=true&IncludeItemTypes=Movie,Video` 计数，并确认宿主机 `ls /root/jellyfin-demo/media | wc -l` 与条目数一致。
 - **注意**：只读挂载同样意味着任何「由服务端写回 `/media`」的方案（转码产物、字幕下载、API 上传原片）在本环境不可用；新增影片一律走宿主机 `scp`/`mv` 落盘后再刷新。
+
+### 坑五：CRLF 脚本经管道送进容器后「假成功」
+- **现象**：在 Windows 侧写好 `.sh`，用 `ssh myserver 'docker exec -i <container> sh -s' < script.sh` 执行，首行即报
+  `sh: 1: set: Illegal option -`，后续命令一条都没跑，但**整条管道退出码仍是 0**，日志里也看不到帧数，容易被当成成功继续往下走。
+- **根因**：Windows 下写出的脚本带 `\r\n`，`set -e\r` 被 dash 解析成非法选项；`ssh` 客户端把远端 stderr 正常透传后仍按「连接成功」返回 0。
+- **修复**：管道前统一去 CR —— `tr -d '\r' < _remote_sl3.sh | ssh myserver 'docker exec -i jellyfin-demo-server sh -s'`。
+- **验收**：不要只看退出码，必须校验远端产物（`ls /tmp/sl3 | wc -l` 是否等于计划帧数、`tar` 包是否存在）再进入下一步。
